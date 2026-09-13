@@ -1,0 +1,136 @@
+# The worker has no inbound traffic, so it has no Service, no ingress and no
+# readiness probe in the HTTP sense. Its health is "is it consuming", which
+# the roster_worker_consumer_up gauge answers.
+
+replicaCount: 2
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+imageDigest: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: roster-worker      # must match the federated credential subject
+  clientId: ""
+  annotations: {}
+
+workloadIdentity:
+  enabled: true
+
+config:
+  environment: dev
+  logLevel: INFO
+  otlpEndpoint: "opentelemetry-collector.observability.svc.cluster.local:4317"
+  metricsPort: 9102
+
+  database:
+    host: ""
+    port: 1433
+    name: shiftboard
+    useManagedIdentity: true
+
+  serviceBus:
+    namespace: ""
+    queue: roster-events
+
+  consumer:
+    # prefetch buys throughput but each prefetched message holds a lock, so
+    # a crash means waiting out lock_duration before redelivery. 20 is a
+    # deliberate middle ground against the queue's PT1M lock.
+    prefetchCount: 20
+    maxWaitSeconds: 10
+    maxMessageBatch: 10
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+# Scaling on CPU is wrong for a queue consumer: a worker blocked on I/O looks
+# idle while the backlog grows. KEDA scales on actual queue depth instead.
+# Disabled in dev to avoid installing KEDA for a queue that is nearly always
+# empty; enabled in prod.
+keda:
+  enabled: false
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  pollingInterval: 20
+  cooldownPeriod: 300
+  # Each replica targets this many unprocessed messages.
+  messageCount: 20
+  # KEDA authenticates with its own workload identity, so no Service Bus
+  # connection string is needed for the scaler either.
+  triggerAuthenticationName: azure-servicebus-auth
+
+autoscaling:
+  enabled: false           # use KEDA instead; left here for CPU fallback
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+probes:
+  # Liveness only, and it checks the metrics endpoint rather than the queue.
+  # If the process is up but not consuming, the consumer_up gauge drops and
+  # an alert fires -- killing the pod would not help if Service Bus is down.
+  liveness:
+    port: 9102
+    path: /
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  privileged: false
+  capabilities:
+    drop: ["ALL"]
+
+networkPolicy:
+  enabled: true
+  allowedEgressPorts: [443, 1433, 5671, 5672]
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+
+nodeSelector:
+  workload: application
+tolerations: []
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: roster-worker
+
+podAnnotations: {}
+extraEnv: []
+priorityClassName: ""
+
+# Must comfortably exceed the time to finish one in-flight batch, or SIGTERM
+# turns into SIGKILL and messages are abandoned rather than completed.
+terminationGracePeriodSeconds: 60

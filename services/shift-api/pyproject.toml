@@ -1,0 +1,29 @@
+[project]
+name = "shift-api"
+version = "1.0.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "C4", "SIM", "ASYNC"]
+ignore = ["S101", "B008"]   # asserts in tests; FastAPI Depends() in defaults
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "E501"]
+"migrations/*" = ["E501"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80 --junitxml=junit.xml"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[tool.bandit]
+exclude_dirs = ["tests", "migrations"]

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: shift-api
+description: ShiftBoard shift scheduling API (FastAPI on AKS with workload identity)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - shiftboard
+  - api
+maintainers:
+  - name: ShiftBoard Platform
+sources:
+  - https://github.com/YOUR_ORG/shiftboard

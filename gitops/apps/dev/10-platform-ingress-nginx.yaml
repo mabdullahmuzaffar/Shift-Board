@@ -1,0 +1,70 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-nginx
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes.github.io/ingress-nginx
+    chart: ingress-nginx
+    targetRevision: 4.12.0
+    helm:
+      values: |
+        controller:
+          replicaCount: 2
+          service:
+            annotations:
+              # Internal load balancer would be correct with Front Door +
+              # Private Link (prod). In dev the LB is public so the app is
+              # reachable without a VPN.
+              service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /healthz
+          # Prometheus scrapes the controller; without this the ingress is a
+          # blind spot for request rates and latency at the edge.
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+              additionalLabels:
+                release: kube-prometheus-stack
+          config:
+            # Real client IP through the Azure LB, otherwise every request
+            # appears to come from the LB and rate limiting is useless.
+            use-forwarded-headers: "true"
+            compute-full-forwarded-for: "true"
+            use-proxy-protocol: "false"
+            ssl-protocols: "TLSv1.2 TLSv1.3"
+            hsts: "true"
+            hsts-max-age: "31536000"
+            server-tokens: "false"
+            # Structured access logs so Log Analytics can index the fields.
+            log-format-escape-json: "true"
+            log-format-upstream: '{"time":"$time_iso8601","remote_addr":"$remote_addr","host":"$host","request":"$request","status":$status,"request_time":$request_time,"upstream_status":"$upstream_status","upstream_response_time":"$upstream_response_time","user_agent":"$http_user_agent"}'
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: ingress-nginx
+                  app.kubernetes.io/component: controller
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ingress-nginx
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true

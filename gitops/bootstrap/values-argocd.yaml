@@ -1,0 +1,126 @@
+# Argo CD install values.
+#
+# Two decisions worth explaining in a review:
+#   1. The admin account stays enabled in dev but SSO via Entra ID is the
+#      only path in prod. A shared admin password in a production GitOps
+#      controller is a single credential that can rewrite the whole cluster.
+#   2. Auto-sync with prune and selfHeal is ON. Without selfHeal, someone
+#      can kubectl edit a Deployment and the drift persists silently, which
+#      defeats the entire point of GitOps.
+
+global:
+  domain: argocd.shiftboard.example.com
+
+configs:
+  params:
+    # TLS terminates at the ingress, so the server runs plain HTTP behind it.
+    server.insecure: true
+
+  cm:
+    # Argo CD needs to know these CRDs are health-checked differently, or
+    # Applications sit permanently "Progressing".
+    resource.customizations.health.keda.sh_ScaledObject: |
+      hs = {}
+      if obj.status ~= nil and obj.status.conditions ~= nil then
+        for _, c in ipairs(obj.status.conditions) do
+          if c.type == "Ready" and c.status == "True" then
+            hs.status = "Healthy"
+            hs.message = "ScaledObject is ready"
+            return hs
+          end
+        end
+      end
+      hs.status = "Progressing"
+      hs.message = "Waiting for ScaledObject"
+      return hs
+
+    # Stops Argo CD reporting perpetual drift on fields the cluster mutates.
+    resource.customizations.ignoreDifferences.apps_Deployment: |
+      jqPathExpressions:
+        - '.spec.replicas'
+
+    timeout.reconciliation: 180s
+
+  rbac:
+    policy.default: role:readonly
+    policy.csv: |
+      p, role:shiftboard-admin, applications, *, */*, allow
+      p, role:shiftboard-admin, repositories, *, *, allow
+      p, role:shiftboard-deployer, applications, sync, */*, allow
+      p, role:shiftboard-deployer, applications, get, */*, allow
+      g, ShiftBoard Platform Admins, role:shiftboard-admin
+      g, ShiftBoard Deployers, role:shiftboard-deployer
+
+server:
+  replicas: 2
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-staging
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    hostname: argocd.shiftboard.example.com
+    tls: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+repoServer:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+applicationSet:
+  replicas: 1
+
+redis-ha:
+  enabled: false   # single Redis in dev; enable for prod
+
+notifications:
+  enabled: true
+  # Sync failures must page someone. A GitOps controller that silently stops
+  # reconciling is worse than no automation, because everyone assumes the
+  # cluster matches Git.
+  notifiers:
+    service.webhook.alerts: |
+      url: $alert-webhook-url
+      headers:
+        - name: Content-Type
+          value: application/json
+  templates:
+    template.app-sync-failed: |
+      webhook:
+        alerts:
+          method: POST
+          body: |
+            {
+              "text": "Argo CD sync FAILED for {{.app.metadata.name}}: {{.app.status.operationState.message}}"
+            }
+  triggers:
+    trigger.on-sync-failed: |
+      - when: app.status.operationState.phase in ['Error', 'Failed']
+        send: [app-sync-failed]
+  subscriptions:
+    - recipients:
+        - alerts
+      triggers:
+        - on-sync-failed
+
+dex:
+  enabled: false   # Entra ID via OIDC directly in prod, not through Dex

@@ -1,0 +1,195 @@
+# Defaults are the safest useful configuration. Environment overlays in
+# gitops/apps/*/values-*.yaml change only what differs.
+
+replicaCount: 2
+
+image:
+  repository: ""            # set per environment: <acr>.azurecr.io/shiftboard/shift-api
+  tag: ""                   # set by the pipeline to the immutable Git SHA
+  pullPolicy: IfNotPresent
+
+# Never "latest". The pipeline writes a digest-pinned or SHA tag so a rollback
+# is a real, reproducible artefact rather than whatever "latest" points at now.
+imageDigest: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: shift-api            # MUST match the federated credential subject in
+                             # infra/modules/identity, or token exchange fails
+  clientId: ""               # azure.workload.identity/client-id
+  annotations: {}
+
+# Injects the projected service account token that DefaultAzureCredential
+# exchanges for an Entra token. Without this label the pod gets no token and
+# every Azure call fails with a credential-unavailable error.
+workloadIdentity:
+  enabled: true
+
+service:
+  type: ClusterIP
+  port: 8000
+  metricsPort: 8000
+
+config:
+  environment: dev
+  logLevel: INFO
+  metricsEnabled: true
+  otlpEndpoint: "opentelemetry-collector.observability.svc.cluster.local:4317"
+
+  database:
+    host: ""                 # sql-....database.windows.net
+    port: 1433
+    name: shiftboard
+    useManagedIdentity: true # no password exists anywhere
+
+  serviceBus:
+    enabled: true
+    namespace: ""
+    queue: roster-events
+
+  auth:
+    enabled: false           # forced true in prod overlay
+    tenantId: ""
+    audience: ""
+
+# External Secrets Operator pulls from Key Vault into a Kubernetes Secret.
+# Only genuinely unavoidable secrets live here -- database and Service Bus
+# access use workload identity instead, so this list stays short.
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: azure-keyvault
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  data: []
+  # - secretKey: DEMO_WORKER_ID
+  #   remoteKey: shiftboard-demo-worker-id
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    # No CPU limit on purpose: CFS throttling at the limit adds tail latency
+    # even when the node has spare capacity. The request guarantees a share;
+    # the HPA handles growth. Memory IS limited, because a leak must be
+    # contained rather than evicting neighbours.
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  # Scale-down is deliberately slow to avoid flapping during traffic dips.
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+
+# Keeps at least one pod serving during a voluntary disruption such as a node
+# drain or a cluster upgrade.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+probes:
+  startup:
+    path: /startupz
+    failureThreshold: 30
+    periodSeconds: 2
+  liveness:
+    # Hits /healthz, which never touches the database, so a slow database
+    # cannot trigger a cluster-wide restart storm.
+    path: /healthz
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 2
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  privileged: false
+  capabilities:
+    drop: ["ALL"]
+
+# Deny-by-default egress. The API may reach DNS, Azure SQL, Service Bus,
+# Entra ID and the collector -- nothing else. A compromised pod cannot phone
+# home to an arbitrary host.
+networkPolicy:
+  enabled: true
+  allowedEgressPorts: [443, 1433, 5671, 5672]
+
+migrations:
+  # Runs as an Argo CD PreSync hook: the schema is migrated before new pods
+  # start, and a failed migration aborts the sync instead of leaving pods
+  # crash-looping against an old schema.
+  enabled: true
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+
+ingress:
+  enabled: false             # traffic arrives via the web pod's nginx proxy
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+
+nodeSelector:
+  workload: application
+
+# Application pods run on the Spot pool in dev, which Azure taints.
+tolerations: []
+
+# Spread replicas across zones and nodes so one failure domain cannot take
+# out every pod. ScheduleAnyway rather than DoNotSchedule: in a single-zone
+# dev cluster, strict spreading would leave pods permanently Pending.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: shift-api
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: shift-api
+
+podAnnotations: {}
+extraEnv: []
+priorityClassName: ""
+
+# Gives in-flight requests time to finish before the container is killed.
+# Must exceed uvicorn's --timeout-graceful-shutdown (25s).
+terminationGracePeriodSeconds: 40

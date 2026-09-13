@@ -1,0 +1,74 @@
+# Serves the SPA and proxies /api to the shift-api Service.
+#
+# Proxying in-cluster rather than calling the API from the browser means the
+# backend never needs a public ingress, CORS is unnecessary, and the API URL
+# is not baked into the JavaScript bundle.
+
+upstream shift_api {
+    # Resolved by Kubernetes DNS. The name comes from the Helm release.
+    server ${SHIFT_API_HOST}:8000;
+    keepalive 16;
+}
+
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Logs go to stdout/stderr for the container runtime to collect.
+    access_log /dev/stdout;
+    error_log  /dev/stderr warn;
+
+    server_tokens off;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+        always;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # Hashed asset filenames are immutable, so cache them hard.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # index.html must never be cached, or clients pin to an old bundle after
+    # a deploy and request asset hashes that no longer exist.
+    location = /index.html {
+        add_header Cache-Control "no-store, must-revalidate";
+        try_files $uri =404;
+    }
+
+    location /api/ {
+        proxy_pass         http://shift_api;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout    30s;
+    }
+
+    # nginx's own liveness endpoint: static, never touches the API.
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+
+    # SPA fallback, last so it cannot shadow the routes above.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

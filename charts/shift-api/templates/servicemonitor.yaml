@@ -1,0 +1,28 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "shift-api.fullname" . }}
+  labels:
+    {{- include "shift-api.labels" . | nindent 4 }}
+    # kube-prometheus-stack only picks up ServiceMonitors carrying the
+    # release label it was installed with.
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      {{- include "shift-api.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+      # Keeps the environment on every series so dev and prod dashboards do
+      # not silently blend together.
+      relabelings:
+        - targetLabel: environment
+          replacement: {{ .Values.config.environment }}
+{{- end }}

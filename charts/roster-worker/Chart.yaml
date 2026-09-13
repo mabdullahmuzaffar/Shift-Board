@@ -1,0 +1,10 @@
+apiVersion: v2
+name: roster-worker
+description: ShiftBoard roster conflict worker (Service Bus consumer on AKS)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: ShiftBoard Platform
+sources:
+  - https://github.com/YOUR_ORG/shiftboard

@@ -1,0 +1,37 @@
+# Environment overlay for web in dev.
+
+image:
+  repository: REPLACED_BY_PIPELINE
+  tag: REPLACED_BY_PIPELINE
+
+config:
+  environment: dev
+  # Helm release name is "shiftboard", chart name "shift-api", so the Service
+  # is shiftboard-shift-api. If this is wrong, nginx fails to resolve the
+  # upstream and the container exits immediately on start-up.
+  shiftApiHost: shiftboard-shift-api
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: shiftboard-dev.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    enabled: true
+    secretName: shiftboard-dev-tls
+    clusterIssuer: letsencrypt-staging
+
+tolerations:
+  - key: kubernetes.azure.com/scalesetpriority
+    operator: Equal
+    value: spot
+    effect: NoSchedule
+
+replicaCount: 2
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4

@@ -1,0 +1,13 @@
+# Production is scanned against the full baseline with no environment-level
+# exemptions. The only suppressions that apply are the reasoned inline skips
+# in infra/modules, each of which names the variable that controls it.
+#
+# If a check fails here, either the configuration is wrong or the exemption
+# needs to be argued explicitly -- it does not get silently added.
+
+framework:
+  - terraform
+
+download-external-modules: false
+
+soft-fail: false

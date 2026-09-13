@@ -1,0 +1,129 @@
+# The only pod exposed through the ingress. It serves static assets and
+# proxies /api to shift-api in-cluster, which is why shift-api needs no
+# public route and no CORS configuration.
+
+replicaCount: 2
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+imageDigest: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: web
+  clientId: ""        # the web pod makes no Azure calls, so no identity
+  annotations: {}
+
+workloadIdentity:
+  enabled: false      # nothing here talks to Azure
+
+config:
+  environment: dev
+  # Kubernetes DNS name of the shift-api Service. Substituted into
+  # default.conf.template by the nginx entrypoint at start-up.
+  shiftApiHost: "shiftboard-shift-api"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080    # nginx-unprivileged listens on 8080, not 80
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    # Redirect plain HTTP. In prod, Front Door already forces HTTPS at the
+    # edge, so this covers anyone reaching the ingress IP directly.
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    # Protects the API from a trivial scripted flood at the edge.
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+  hosts:
+    - host: shiftboard.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    enabled: true
+    secretName: shiftboard-tls
+    # cert-manager issues and renews the certificate. Use the staging issuer
+    # first: Let's Encrypt production rate-limits hard, and a misconfigured
+    # ingress can burn your weekly quota in an afternoon.
+    clusterIssuer: letsencrypt-staging
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+probes:
+  liveness:
+    # Static nginx endpoint. Deliberately does NOT proxy to the API: if the
+    # API is down the console should still load and show an error, not be
+    # restarted itself.
+    path: /healthz
+    initialDelaySeconds: 3
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    path: /healthz
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 2
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101          # nginx-unprivileged
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  # nginx writes its cache, run and temp directories, so those get emptyDirs
+  # rather than a writable root filesystem.
+  readOnlyRootFilesystem: true
+  privileged: false
+  capabilities:
+    drop: ["ALL"]
+
+networkPolicy:
+  enabled: true
+
+nodeSelector:
+  workload: application
+tolerations: []
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: web
+
+podAnnotations: {}
+extraEnv: []
+priorityClassName: ""
+terminationGracePeriodSeconds: 30

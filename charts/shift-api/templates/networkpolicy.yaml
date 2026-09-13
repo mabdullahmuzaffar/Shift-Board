@@ -1,0 +1,83 @@
+{{- if .Values.networkPolicy.enabled }}
+# Deny-by-default for this pod, then allow only what it genuinely needs.
+# Calico enforces these (network_policy = "calico" in the AKS module).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "shift-api.fullname" . }}
+  labels:
+    {{- include "shift-api.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "shift-api.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only the web pod's nginx may call the API. Nothing else in the cluster
+    # can reach it, so there is no lateral path from a compromised sidecar.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: web
+      ports:
+        - port: http
+          protocol: TCP
+    # Prometheus scrapes /metrics.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: http
+          protocol: TCP
+  egress:
+    # DNS. Without this rule nothing resolves and every other rule is moot --
+    # the single most common mistake when writing a first NetworkPolicy.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # OpenTelemetry collector for traces.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 4317
+          protocol: TCP
+    # Azure SQL (1433), Service Bus AMQP (5671/5672) and HTTPS for Entra ID
+    # token exchange. Destinations are IP-based because Azure PaaS endpoints
+    # sit outside the cluster; the private endpoints keep them inside the
+    # VNet, and 169.254.169.254 is excluded so the pod cannot read instance
+    # metadata.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+              - 10.0.0.0/8
+      ports:
+        {{- range .Values.networkPolicy.allowedEgressPorts }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    # Private endpoints for SQL, Key Vault and Service Bus live in the VNet.
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        {{- range .Values.networkPolicy.allowedEgressPorts }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+{{- end }}

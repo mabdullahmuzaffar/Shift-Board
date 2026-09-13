@@ -1,0 +1,40 @@
+# Environment overlay for roster-worker in dev.
+
+image:
+  repository: REPLACED_BY_PIPELINE
+  tag: REPLACED_BY_PIPELINE
+
+serviceAccount:
+  clientId: REPLACED_BY_PIPELINE
+
+config:
+  environment: dev
+  logLevel: DEBUG
+  database:
+    host: REPLACED_BY_PIPELINE
+    name: shiftboard
+    useManagedIdentity: true
+  serviceBus:
+    namespace: REPLACED_BY_PIPELINE
+    queue: roster-events
+
+# KEDA is installed in dev so the scaling behaviour can actually be observed
+# and tested, even though the dev queue is usually empty.
+keda:
+  enabled: true
+  minReplicaCount: 1
+  maxReplicaCount: 4
+  messageCount: 10
+
+tolerations:
+  - key: kubernetes.azure.com/scalesetpriority
+    operator: Equal
+    value: spot
+    effect: NoSchedule
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 192Mi
+  limits:
+    memory: 384Mi

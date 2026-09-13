@@ -1,0 +1,28 @@
+# Checkov exemptions scoped to the dev environment ONLY.
+#
+# These are deliberately NOT inline skips in infra/modules, because an inline
+# skip there would exempt production from the same check. Keeping them here
+# means prod is still scanned against the full baseline and any regression in
+# prod fails the pipeline.
+#
+# The pipeline runs Checkov per-directory (see
+# .azuredevops/pipelines/infra-ci.yml) so each environment picks up its own
+# config file.
+
+framework:
+  - terraform
+
+download-external-modules: false
+
+skip-check:
+  # AKS Free tier: no uptime SLA. Accepted for a non-production environment
+  # that is routinely destroyed and recreated. prod uses Standard.
+  - CKV_AZURE_170
+
+  # SQL audit retention: dev sets audit_retention_days = 0, which delegates
+  # retention to the Log Analytics workspace (30 days) rather than paying for
+  # a separate 90-day audit store. prod sets 90 explicitly.
+  - CKV_AZURE_24
+
+# Any finding outside the list above fails the build.
+soft-fail: false

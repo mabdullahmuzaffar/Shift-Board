@@ -1,0 +1,10 @@
+apiVersion: v2
+name: web
+description: ShiftBoard operations console (React SPA served by nginx, proxies to shift-api)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: ShiftBoard Platform
+sources:
+  - https://github.com/YOUR_ORG/shiftboard

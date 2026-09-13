@@ -1,0 +1,56 @@
+# Environment overlay for shift-api in dev.
+#
+# GENERATED VALUES: the lines marked REPLACED_BY_PIPELINE are written by
+# .azuredevops/pipelines/app-ci.yml from `terraform output -json helm_values`.
+# They are committed so Git remains the single source of truth and a rollback
+# restores the exact values that were live, but they are never hand-edited.
+
+image:
+  repository: REPLACED_BY_PIPELINE   # <acr>.azurecr.io/shiftboard/shift-api
+  tag: REPLACED_BY_PIPELINE          # immutable git SHA
+
+serviceAccount:
+  clientId: REPLACED_BY_PIPELINE
+
+config:
+  environment: dev
+  logLevel: DEBUG                    # verbose in dev; INFO in prod
+  database:
+    host: REPLACED_BY_PIPELINE
+    name: shiftboard
+    useManagedIdentity: true
+  serviceBus:
+    enabled: true
+    namespace: REPLACED_BY_PIPELINE
+    queue: roster-events
+  auth:
+    # Off in dev so the k6 smoke test and manual curl work without a token.
+    # Forced true in prod.
+    enabled: false
+
+externalSecrets:
+  enabled: true
+  data:
+    - secretKey: SHIFTBOARD_DEMO_WORKER_ID
+      remoteKey: shiftboard-demo-worker-id
+
+# Dev runs on Spot nodes, which Azure taints. Without this toleration pods
+# stay Pending with no obvious reason in the Deployment status.
+tolerations:
+  - key: kubernetes.azure.com/scalesetpriority
+    operator: Equal
+    value: spot
+    effect: NoSchedule
+
+replicaCount: 2
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 192Mi
+  limits:
+    memory: 384Mi

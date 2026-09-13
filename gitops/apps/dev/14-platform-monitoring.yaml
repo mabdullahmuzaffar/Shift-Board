@@ -1,0 +1,153 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 67.5.0
+    helm:
+      # The release name matters: every ServiceMonitor in this repo carries
+      # `release: kube-prometheus-stack`, and the Prometheus instance only
+      # selects monitors with that label. Rename the release and metrics
+      # collection silently stops.
+      releaseName: kube-prometheus-stack
+      values: |
+        fullnameOverride: kube-prometheus-stack
+
+        prometheus:
+          prometheusSpec:
+            retention: 15d
+            retentionSize: 20GB
+            # Empty selectors would only match monitors labelled with this
+            # release; setting them false makes Prometheus pick up every
+            # ServiceMonitor and PrometheusRule in the cluster, which is what
+            # we want for a single-tenant cluster.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            # Labels stamped on every series, so federated or long-term
+            # storage can tell environments apart.
+            externalLabels:
+              cluster: aks-shiftboard-dev
+              environment: dev
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  # managed-csi-premium would be the prod choice; standard
+                  # is adequate for 15 days of dev metrics.
+                  storageClassName: managed-csi
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 25Gi
+            resources:
+              requests:
+                cpu: 250m
+                memory: 1Gi
+              limits:
+                memory: 3Gi
+
+        alertmanager:
+          alertmanagerSpec:
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: managed-csi
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 5Gi
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+          config:
+            global:
+              resolve_timeout: 5m
+            route:
+              # Group by alertname AND service so one broken service does not
+              # bury alerts from another in the same notification.
+              group_by: ['alertname', 'service', 'severity']
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 4h
+              receiver: default
+              routes:
+                - matchers:
+                    - severity = "critical"
+                  receiver: oncall
+                  # Critical alerts page fast and repeat often.
+                  group_wait: 10s
+                  repeat_interval: 1h
+                - matchers:
+                    - severity = "warning"
+                  receiver: default
+            receivers:
+              - name: default
+              - name: oncall
+            inhibit_rules:
+              # If the whole service is down, do not also page about its
+              # latency. One page per incident, not five.
+              - source_matchers:
+                  - alertname = "ShiftApiDown"
+                target_matchers:
+                  - service = "shift-api"
+                equal: ['service']
+
+        grafana:
+          enabled: true
+          defaultDashboardsEnabled: true
+          adminPassword: ""   # set via ESO in prod; random on install in dev
+          sidecar:
+            dashboards:
+              enabled: true
+              # Picks up the JSON in observability/dashboards once applied as
+              # ConfigMaps with this label.
+              label: grafana_dashboard
+              searchNamespace: ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+
+        # AKS does not expose these control-plane components to scraping, so
+        # leaving them enabled produces permanently-firing "target down"
+        # alerts that train everyone to ignore alerts.
+        kubeEtcd:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeProxy:
+          enabled: false
+
+        nodeExporter:
+          enabled: true
+        kubeStateMetrics:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+      # The CRDs in this chart are enormous and exceed client-side apply
+      # limits; without this the sync fails on annotation size.
+      - Replace=false

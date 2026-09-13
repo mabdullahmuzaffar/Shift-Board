@@ -1,0 +1,72 @@
+{{- if .Values.migrations.enabled }}
+# Alembic migration, run as an Argo CD PreSync hook.
+#
+# Ordering matters: the schema must be current BEFORE new pods start, or the
+# new code crash-loops against an old schema. PreSync guarantees that, and a
+# failed job aborts the whole sync so a broken migration never reaches a
+# running Deployment.
+#
+# The job uses the same image and the same workload identity as the API, so
+# no human and no pipeline ever needs direct database credentials.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A unique name per revision. Jobs are immutable, so reusing a name makes
+  # the second sync fail with "field is immutable".
+  name: {{ include "shift-api.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "shift-api.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "shift-api.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+        {{- if .Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "shift-api.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "shift-api.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "shift-api.fullname" . }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+{{- end }}

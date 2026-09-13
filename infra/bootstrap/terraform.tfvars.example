@@ -1,0 +1,10 @@
+# cp terraform.tfvars.example terraform.tfvars and fill in.
+# terraform.tfvars is gitignored -- it holds your subscription id.
+
+subscription_id      = "00000000-0000-0000-0000-000000000000"
+storage_account_name = "stshiftboardtfstate01"
+location             = "westeurope"
+
+pipeline_principal_ids = {
+  # azure-devops = "11111111-1111-1111-1111-111111111111"
+}

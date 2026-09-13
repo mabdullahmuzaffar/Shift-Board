@@ -1,0 +1,14 @@
+# Lets the KEDA Service Bus scaler read queue depth using KEDA's own
+# workload identity. Without this, the alternative is a connection string in
+# a Kubernetes Secret -- exactly what this project avoids everywhere else.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: azure-servicebus-auth
+  namespace: shiftboard
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  podIdentity:
+    provider: azure-workload
+    identityId: "REPLACED_BY_PIPELINE"

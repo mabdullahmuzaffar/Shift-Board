@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "shift-api.fullname" . }}
+  labels:
+    {{- include "shift-api.labels" . | nindent 4 }}
+data:
+  SHIFTBOARD_ENVIRONMENT: {{ .Values.config.environment | quote }}
+  SHIFTBOARD_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  SHIFTBOARD_METRICS_ENABLED: {{ .Values.config.metricsEnabled | quote }}
+  SHIFTBOARD_OTLP_ENDPOINT: {{ .Values.config.otlpEndpoint | quote }}
+
+  SHIFTBOARD_DB_HOST: {{ required "config.database.host is required" .Values.config.database.host | quote }}
+  SHIFTBOARD_DB_PORT: {{ .Values.config.database.port | quote }}
+  SHIFTBOARD_DB_NAME: {{ .Values.config.database.name | quote }}
+  SHIFTBOARD_DB_USE_MANAGED_IDENTITY: {{ .Values.config.database.useManagedIdentity | quote }}
+
+  SHIFTBOARD_SERVICEBUS_ENABLED: {{ .Values.config.serviceBus.enabled | quote }}
+  {{- if .Values.config.serviceBus.enabled }}
+  SHIFTBOARD_SERVICEBUS_NAMESPACE: {{ required "config.serviceBus.namespace is required when Service Bus is enabled" .Values.config.serviceBus.namespace | quote }}
+  SHIFTBOARD_SERVICEBUS_QUEUE: {{ .Values.config.serviceBus.queue | quote }}
+  {{- end }}
+
+  SHIFTBOARD_AUTH_ENABLED: {{ .Values.config.auth.enabled | quote }}
+  {{- if .Values.config.auth.enabled }}
+  SHIFTBOARD_ENTRA_TENANT_ID: {{ required "config.auth.tenantId is required when auth is enabled" .Values.config.auth.tenantId | quote }}
+  SHIFTBOARD_ENTRA_AUDIENCE: {{ required "config.auth.audience is required when auth is enabled" .Values.config.auth.audience | quote }}
+  {{- end }}

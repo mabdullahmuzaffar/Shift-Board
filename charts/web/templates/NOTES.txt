@@ -1,0 +1,29 @@
+{{ .Chart.Name }} {{ .Chart.Version }} deployed to {{ .Release.Namespace }}.
+
+Image: {{ include "web.image" . }}
+API:   {{ .Values.config.shiftApiHost }}:8000 (in-cluster, via nginx proxy)
+
+{{- if .Values.ingress.enabled }}
+Reach the console at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls.enabled }}s{{ end }}://{{ .host }}
+{{- end }}
+
+{{- if .Values.ingress.tls.enabled }}
+
+TLS uses cert-manager issuer "{{ .Values.ingress.tls.clusterIssuer }}".
+{{- if contains "staging" .Values.ingress.tls.clusterIssuer }}
+This is the STAGING issuer, so browsers will warn about an untrusted
+certificate. That is expected. Switch to the production issuer only after
+the ingress and DNS are confirmed working -- Let's Encrypt production
+rate limits are strict and slow to reset.
+{{- end }}
+
+Check issuance:
+  kubectl -n {{ .Release.Namespace }} get certificate {{ .Values.ingress.tls.secretName }}
+  kubectl -n {{ .Release.Namespace }} describe certificate {{ .Values.ingress.tls.secretName }}
+{{- end }}
+{{- else }}
+No ingress. Reach it locally with:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "web.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}

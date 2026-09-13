@@ -1,0 +1,20 @@
+{{ .Chart.Name }} {{ .Chart.Version }} deployed to {{ .Release.Namespace }}.
+
+Image:   {{ include "roster-worker.image" . }}
+Queue:   {{ .Values.config.serviceBus.queue }} @ {{ .Values.config.serviceBus.namespace }}
+Scaling: {{ if .Values.keda.enabled }}KEDA on queue depth (target {{ .Values.keda.messageCount }} msg/replica){{ else if .Values.autoscaling.enabled }}HPA on CPU (not ideal for a queue consumer){{ else }}fixed at {{ .Values.replicaCount }} replicas{{ end }}
+
+Confirm it is actually consuming -- a running pod is not the same as a
+working consumer:
+
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/name=roster-worker --tail=20
+  # look for consumer_starting, then message_completed
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "roster-worker.fullname" . }} 9102:{{ .Values.config.metricsPort }}
+  curl -s localhost:9102 | grep roster_worker_consumer_up
+  # 1 means connected; 0 means the receive loop is failing
+
+If messages pile up in the dead-letter queue, inspect them before replaying:
+
+  az servicebus queue show -g <rg> --namespace-name {{ .Values.config.serviceBus.namespace }} \
+    -n {{ .Values.config.serviceBus.queue }} --query countDetails

@@ -1,0 +1,74 @@
+# --- Terraform ---
+# State can contain secrets in plain text. It belongs in the Azure Storage
+# backend, never in Git.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+crash.log
+tfplan
+*.tfplan
+# tfvars hold subscription ids and group object ids. Commit only .example.
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+
+# --- Secrets / credentials ---
+# These patterns exist because the reference repo this project was inspired
+# by had committed .pem files and a populated secrets.yaml.
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+kubeconfig
+.kube/
+secrets.yaml
+secrets.yml
+*-secret.yaml
+.env
+.env.*
+!.env.example
+azureauth.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+junit.xml
+htmlcov/
+
+# --- Node ---
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+*.tsbuildinfo
+
+# --- Build output ---
+build/
+*.tar
+*.tgz
+!charts/**/*.tgz
+
+# --- Editors / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# --- Compiled artefacts that must never be committed ---
+*.class
+*.jar
+*.war

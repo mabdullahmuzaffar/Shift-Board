@@ -1,0 +1,53 @@
+# Wave 3. Depends on the schema applied by shift-api's PreSync hook in
+# wave 2 -- the worker writes conflicts and processed_events rows.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: roster-worker
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  # Multi-source rather than a relative valueFiles path that escapes the
+  # chart directory. Argo CD blocks out-of-bounds value file paths by
+  # default ("app path outside root"), and the multi-source form with a
+  # `ref` is the supported way to keep environment values beside the
+  # environment instead of inside the chart.
+  sources:
+    - repoURL: https://github.com/YOUR_ORG/shiftboard.git
+      targetRevision: main
+      path: charts/roster-worker
+      helm:
+        releaseName: shiftboard
+        valueFiles:
+          - values.yaml
+          - $values/gitops/apps/dev/values-roster-worker.yaml
+    - repoURL: https://github.com/YOUR_ORG/shiftboard.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shiftboard
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    # The HPA owns replicas. Without this, Argo CD reports permanent drift
+    # and selfHeal fights the autoscaler.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

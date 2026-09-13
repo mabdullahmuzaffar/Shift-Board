@@ -1,0 +1,69 @@
+# Wave -2. The kubernetes.io/metadata.name label is applied automatically by
+# the API server, and the NetworkPolicies in the charts select on it -- so
+# namespace names are part of the security contract, not cosmetic.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shiftboard
+  labels:
+    name: shiftboard
+    # Enforces the restricted Pod Security Standard. Any pod that is not
+    # non-root, cap-dropped and seccomp-confined is REJECTED at admission,
+    # not merely flagged. This is what makes the chart's securityContext a
+    # guarantee rather than a convention.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    name: observability
+    pod-security.kubernetes.io/enforce: privileged  # node-exporter needs host access
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets
+  labels:
+    name: external-secrets
+    pod-security.kubernetes.io/enforce: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    name: cert-manager
+    pod-security.kubernetes.io/enforce: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-nginx
+  labels:
+    name: ingress-nginx
+    pod-security.kubernetes.io/enforce: privileged  # needs NET_BIND_SERVICE
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keda
+  labels:
+    name: keda
+    pod-security.kubernetes.io/enforce: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"

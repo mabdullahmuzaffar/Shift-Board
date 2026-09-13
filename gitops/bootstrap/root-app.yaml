@@ -1,0 +1,39 @@
+# The one object applied by hand. Everything else is a child of this.
+#
+# Changing the targetRevision or path here is how you point a cluster at a
+# different environment or a release branch -- and it is the only
+# cluster-level change that is not itself in Git, which is why it is kept as
+# small as possible.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shiftboard-root
+  namespace: argocd
+  finalizers:
+    # Ensures deleting this Application cascades to its children instead of
+    # orphaning every resource in the cluster.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_ORG/shiftboard.git
+    # Pin to a tag or commit in prod. HEAD of main means any merge deploys
+    # immediately, which is fine for dev and not for production.
+    targetRevision: main
+    path: gitops/apps/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true      # deleting a file deletes the resource
+      selfHeal: true   # manual kubectl edits are reverted
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

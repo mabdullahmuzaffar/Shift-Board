@@ -1,0 +1,53 @@
+# Wave 3. Depends on the shift-api Service existing: nginx resolves the
+# upstream by DNS at start-up and exits if it cannot be resolved.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  # Multi-source rather than a relative valueFiles path that escapes the
+  # chart directory. Argo CD blocks out-of-bounds value file paths by
+  # default ("app path outside root"), and the multi-source form with a
+  # `ref` is the supported way to keep environment values beside the
+  # environment instead of inside the chart.
+  sources:
+    - repoURL: https://github.com/YOUR_ORG/shiftboard.git
+      targetRevision: main
+      path: charts/web
+      helm:
+        releaseName: shiftboard
+        valueFiles:
+          - values.yaml
+          - $values/gitops/apps/dev/values-web.yaml
+    - repoURL: https://github.com/YOUR_ORG/shiftboard.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shiftboard
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    # The HPA owns replicas. Without this, Argo CD reports permanent drift
+    # and selfHeal fights the autoscaler.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

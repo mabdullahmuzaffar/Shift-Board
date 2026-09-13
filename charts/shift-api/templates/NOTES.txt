@@ -1,0 +1,27 @@
+{{ .Chart.Name }} {{ .Chart.Version }} deployed to namespace {{ .Release.Namespace }}.
+
+Image:        {{ include "shift-api.image" . }}
+Environment:  {{ .Values.config.environment }}
+Auth enabled: {{ .Values.config.auth.enabled }}
+
+Check it is serving:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "shift-api.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "shift-api.fullname" . }} 8000:{{ .Values.service.port }}
+  curl localhost:8000/readyz
+
+{{- if .Values.workloadIdentity.enabled }}
+
+Workload identity is enabled. If Azure calls fail with
+CredentialUnavailableError, check all three of these agree:
+
+  1. ServiceAccount annotation azure.workload.identity/client-id
+       = {{ .Values.serviceAccount.clientId | default "NOT SET -- this is the problem" }}
+  2. The pod carries the label azure.workload.identity/use=true
+  3. The federated credential subject in Azure is exactly
+       system:serviceaccount:{{ .Release.Namespace }}:{{ include "shift-api.serviceAccountName" . }}
+
+  Verify with:
+    az identity federated-credential list --identity-name id-shiftboard-{{ .Values.config.environment }}-shift-api \
+      --resource-group rg-shiftboard-{{ .Values.config.environment }} -o table
+{{- end }}
