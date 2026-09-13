@@ -289,7 +289,7 @@ Honest scope boundaries, so a reviewer knows these were decisions:
 
 ---
 
-## Verification status
+## Verification status:
 
 Everything below was run, not assumed.
 
