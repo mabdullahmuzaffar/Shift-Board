@@ -6,8 +6,8 @@
 # human, and its own terraform.tfstate is committed to a private location or
 # simply recreated with `terraform import` if lost. Everything it creates is
 # idempotent, so a lost state file is an inconvenience, not a disaster.
-#
-#   cd infra/bootstrap
+#  cd infra
+#   cd bootstrap
 #   terraform init && terraform apply
 #
 # After this, each env uses the azurerm backend with its own state key.
